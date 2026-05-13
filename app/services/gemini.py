@@ -96,13 +96,75 @@ def _extract_text(payload: dict[str, Any]) -> str:
 def _normalize_json_text(text: str) -> str:
 	clean = text.strip()
 	if clean.startswith("```"):
-		clean = clean.strip("`")
-		clean = clean.removeprefix("json").strip()
+		lines = clean.splitlines()
+		if lines and lines[0].startswith("```"):
+			lines = lines[1:]
+		if lines and lines[-1].strip().startswith("```"):
+			lines = lines[:-1]
+		clean = "\n".join(lines).strip()
+		if clean.lower().startswith("json"):
+			clean = clean[4:].strip()
+
 	start = clean.find("{")
-	end = clean.rfind("}")
-	if start != -1 and end != -1 and end > start:
-		return clean[start : end + 1]
-	return clean
+	if start == -1:
+		return clean
+
+	depth = 0
+	in_string = False
+	escaped = False
+	for index in range(start, len(clean)):
+		character = clean[index]
+		if in_string:
+			if escaped:
+				escaped = False
+			elif character == "\\":
+				escaped = True
+			elif character == '"':
+				in_string = False
+			continue
+
+		if character == '"':
+			in_string = True
+		elif character == "{":
+			depth += 1
+		elif character == "}":
+			depth -= 1
+			if depth == 0:
+				return clean[start : index + 1]
+
+	return clean[start:]
+
+
+def _gemini_response_schema() -> dict[str, Any]:
+	return {
+		"type": "object",
+		"propertyOrdering": ["ocr_result", "ai_interpretation"],
+		"properties": {
+			"ocr_result": {
+				"type": "object",
+				"propertyOrdering": ["raw_text", "extracted_fields"],
+				"properties": {
+					"raw_text": {"type": "string"},
+					"extracted_fields": {"type": "object"},
+				},
+				"required": ["raw_text", "extracted_fields"],
+				"additionalProperties": True,
+			},
+			"ai_interpretation": {
+				"type": "object",
+				"properties": {
+					"summary": {"type": "string"},
+					"risk_level": {"type": "string"},
+					"key_findings": {"type": "array", "items": {"type": "string"}},
+					"next_steps": {"type": "array", "items": {"type": "string"}},
+				},
+				"required": ["summary", "risk_level", "key_findings", "next_steps"],
+				"additionalProperties": True,
+			},
+		},
+		"required": ["ocr_result", "ai_interpretation"],
+		"additionalProperties": False,
+	}
 
 
 
@@ -111,7 +173,10 @@ def _parse_result(text: str) -> GeminiExtractionResult:
 	try:
 		return GeminiExtractionResult.model_validate_json(candidate)
 	except ValidationError as exc:
-		raise GeminiError("Gemini response was not valid structured JSON") from exc
+		try:
+			return GeminiExtractionResult.model_validate(json.loads(candidate))
+		except (json.JSONDecodeError, ValidationError) as inner_exc:
+			raise GeminiError("Gemini response was not valid structured JSON") from inner_exc
 	except json.JSONDecodeError as exc:
 		raise GeminiError("Gemini response could not be decoded as JSON") from exc
 
@@ -158,6 +223,7 @@ async def extract_report(file_paths: list[Path]) -> GeminiExtractionResult:
 			"topP": 0.95,
 			"maxOutputTokens": settings.GEMINI_MAX_OUTPUT_TOKENS,
 			"responseMimeType": "application/json",
+			"responseJsonSchema": _gemini_response_schema(),
 		},
 	}
 

@@ -3,14 +3,22 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import ssl
 from typing import Any
+from pathlib import Path
+
+# Load .env file before importing anything else
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
 
 from celery import Celery
 from celery.signals import task_failure, task_prerun, task_success
 
 logger = logging.getLogger(__name__)
 
-BROKER_URL: str = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+# Load Redis URL from environment or use default; prefer REDIS_URL for rediss:// broker
+REDIS_URL: str = os.environ.get("REDIS_URL") or os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+BROKER_URL: str = REDIS_URL
 RESULT_BACKEND: str = os.environ.get("CELERY_RESULT_BACKEND", BROKER_URL)
 TIMEZONE: str = "UTC"
 ENABLE_UTC: bool = True
@@ -54,6 +62,13 @@ celery_app.conf.update(
     task_send_sent_event=True,
     worker_send_task_events=True,
 )
+
+# If using rediss:// (secure redis), add SSL configuration
+if BROKER_URL.startswith("rediss://"):
+    celery_app.conf.broker_use_ssl = {"ssl_cert_reqs": ssl.CERT_NONE}
+    celery_app.conf.redis_backend_use_ssl = {"ssl_cert_reqs": ssl.CERT_NONE}
+    logger.info("Configured SSL for rediss:// broker with CERT_NONE (insecure; for testing only)")
+
 
 celery_app.conf.task_routes = {
     AnalysisWorkflow.TASK_NAME: {"queue": AnalysisWorkflow.QUEUE_NAME, "routing_key": AnalysisWorkflow.ROUTING_KEY}

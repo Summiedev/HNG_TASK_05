@@ -27,3 +27,6 @@ test_feature.py
 test_image.png
 test_upload_pipeline.py
 uploads/
+run_worker_analysis.bat
+START_API.bat
+START_WORKER.bat

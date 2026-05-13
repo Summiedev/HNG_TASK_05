@@ -1,3 +1,9 @@
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env file before importing any app code
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 from fastapi import FastAPI
 
 from app.api.v1.router import api_router

@@ -31,9 +31,5 @@ class AnalysisTask(Task):
 )
 def process_analysis(self: Task, analysis_id: str) -> dict[str, Any]:
 	from app.services.processor import process_analysis_async
-	loop = asyncio.new_event_loop()
-	try:
-		loop.run_until_complete(process_analysis_async(analysis_id))
-	finally:
-		loop.close()
+	asyncio.run(process_analysis_async(analysis_id))
 	return {"status": "success", "analysis_id": analysis_id}
